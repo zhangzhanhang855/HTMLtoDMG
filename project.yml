@@ -3,6 +3,7 @@ options:
   bundleIdPrefix: com.jrmusic
   deploymentTarget:
     macOS: "12.0"
+  xcodeVersion: "15.4" # Explicitly sets compatibility to format 56 (Xcode 15.x compatible)
 targets:
   JRmusic:
     type: application
