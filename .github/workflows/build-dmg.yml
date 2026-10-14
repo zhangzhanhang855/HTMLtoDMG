@@ -75,10 +75,14 @@ jobs:
           TARGET_WWW="JRmusic.app/Contents/Resources/www"
           mkdir -p "$TARGET_WWW"
 
-          # Copy core UI files into app bundle
+          # Copy frontend files into the app bundle
           cp JRmusic/Resources/www/index.html "$TARGET_WWW/"
           cp JRmusic/Resources/www/app.js "$TARGET_WWW/"
           cp JRmusic/Resources/www/style.css "$TARGET_WWW/"
+
+          # Ensure binary and directory permissions are correct
+          chmod -R u+w JRmusic.app
+          chmod +x JRmusic.app/Contents/MacOS/JRmusic
 
           echo "Bundle Assets Check:"
           ls -la "$TARGET_WWW"
@@ -86,6 +90,14 @@ jobs:
           test -f "$TARGET_WWW/index.html" || { echo "Missing index.html"; exit 1; }
           test -f "$TARGET_WWW/app.js" || { echo "Missing app.js"; exit 1; }
           test -f "$TARGET_WWW/style.css" || { echo "Missing style.css"; exit 1; }
+
+      - name: Apply Ad-Hoc Code Signature
+        run: |
+          # Ad-hoc sign the bundle with deep traversal so macOS accepts bundle integrity
+          codesign --force --deep --sign - ./JRmusic.app
+
+          # Verify the signature
+          codesign --verify --verbose ./JRmusic.app
 
       - name: Assemble DMG Staging Root
         run: |
@@ -107,6 +119,10 @@ jobs:
             -format UDZO \
             dist/JRmusic.dmg
 
+          # Ad-hoc sign the outer disk image
+          codesign --force --sign - dist/JRmusic.dmg
+
+          # Verify DMG file integrity
           hdiutil verify dist/JRmusic.dmg
 
       - name: Upload DMG Artifact
