@@ -13,6 +13,25 @@ jobs:
       - name: Check Out Repository
         uses: actions/checkout@v4
 
+      - name: Select Xcode 16 (Fallback to Latest)
+        run: |
+          echo "Available Xcode installations on runner:"
+          ls -d /Applications/Xcode* || true
+
+          # Select the newest Xcode 16.x available; fallback gracefully if not found
+          if [ -d "/Applications/Xcode_16.2.app" ]; then
+            sudo xcode-select -s /Applications/Xcode_16.2.app
+          elif [ -d "/Applications/Xcode_16.1.app" ]; then
+            sudo xcode-select -s /Applications/Xcode_16.1.app
+          elif [ -d "/Applications/Xcode_16.0.app" ]; then
+            sudo xcode-select -s /Applications/Xcode_16.0.app
+          elif [ -d "/Applications/Xcode_16.app" ]; then
+            sudo xcode-select -s /Applications/Xcode_16.app
+          fi
+
+          echo "Active Xcode Version:"
+          xcodebuild -version
+
       - name: Set Up Python Environment
         uses: actions/setup-python@v5
         with:
@@ -26,12 +45,12 @@ jobs:
       - name: Generate App Icon (.icns) & Graphics
         run: |
           python3 scripts/generate_icons.py
-          # Validate icon was built
           test -f "JRmusic/Resources/AppIcon.icns" || { echo "AppIcon generation failed"; exit 1; }
 
       - name: Generate Xcode Project File
         run: |
-          xcodegen generate
+          # Use Xcode 14.0 compatibility project format as extra safety guard
+          xcodegen generate --project-format "Xcode 14.0" || xcodegen generate
 
       - name: Compile macOS Application (.app)
         run: |
@@ -44,7 +63,6 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO
 
-          # Extract compiled .app bundle
           APP_PATH="build_output/Build/Products/Release/JRmusic.app"
           if [ ! -d "$APP_PATH" ]; then
             echo "Build error: JRmusic.app not found in products directory"
@@ -54,41 +72,34 @@ jobs:
 
       - name: Verify & Inject Web Warehouse Assets
         run: |
-          # Ensure Resources/www exists inside app bundle
           TARGET_WWW="JRmusic.app/Contents/Resources/www"
           mkdir -p "$TARGET_WWW"
 
-          # Copy frontend files (ensuring index.html, app.js, style.css are placed)
+          # Copy core UI files into app bundle
           cp JRmusic/Resources/www/index.html "$TARGET_WWW/"
           cp JRmusic/Resources/www/app.js "$TARGET_WWW/"
           cp JRmusic/Resources/www/style.css "$TARGET_WWW/"
 
-          # Audit contents
-          echo "Verifying web bundle contents:"
+          echo "Bundle Assets Check:"
           ls -la "$TARGET_WWW"
 
           test -f "$TARGET_WWW/index.html" || { echo "Missing index.html"; exit 1; }
           test -f "$TARGET_WWW/app.js" || { echo "Missing app.js"; exit 1; }
           test -f "$TARGET_WWW/style.css" || { echo "Missing style.css"; exit 1; }
 
-      - name: Assemble DMG Volume Root & Applications Symlink
+      - name: Assemble DMG Staging Root
         run: |
           mkdir -p dmg_root
-          # Copy app bundle into DMG staging area
           cp -R JRmusic.app dmg_root/
-
-          # Create standard macOS drag-and-drop link to /Applications
           ln -s /Applications dmg_root/Applications
 
-          # Optional: Include root volume icon if available
           if [ -f "JRmusic/Resources/AppIcon.icns" ]; then
             cp "JRmusic/Resources/AppIcon.icns" dmg_root/.VolumeIcon.icns
           fi
 
-      - name: Package Distributable DMG via Native hdiutil
+      - name: Build DMG via Native hdiutil
         run: |
           mkdir -p dist
-          # Build compressed read-only HFS+/UDZO disk image
           hdiutil create \
             -volname "JRmusic" \
             -srcfolder dmg_root \
@@ -96,7 +107,6 @@ jobs:
             -format UDZO \
             dist/JRmusic.dmg
 
-          # Verify DMG file integrity
           hdiutil verify dist/JRmusic.dmg
 
       - name: Upload DMG Artifact
