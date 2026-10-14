@@ -1,0 +1,108 @@
+name: Build JRmusic DMG
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+jobs:
+  build-and-package:
+    runs-on: macos-14
+
+    steps:
+      - name: Check Out Repository
+        uses: actions/checkout@v4
+
+      - name: Set Up Python Environment
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install System Build Tools
+        run: |
+          pip install Pillow
+          brew install xcodegen
+
+      - name: Generate App Icon (.icns) & Graphics
+        run: |
+          python3 scripts/generate_icons.py
+          # Validate icon was built
+          test -f "JRmusic/Resources/AppIcon.icns" || { echo "AppIcon generation failed"; exit 1; }
+
+      - name: Generate Xcode Project File
+        run: |
+          xcodegen generate
+
+      - name: Compile macOS Application (.app)
+        run: |
+          xcodebuild clean build \
+            -project JRmusic.xcodeproj \
+            -scheme JRmusic \
+            -configuration Release \
+            -derivedDataPath build_output \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO
+
+          # Extract compiled .app bundle
+          APP_PATH="build_output/Build/Products/Release/JRmusic.app"
+          if [ ! -d "$APP_PATH" ]; then
+            echo "Build error: JRmusic.app not found in products directory"
+            exit 1
+          fi
+          cp -R "$APP_PATH" ./JRmusic.app
+
+      - name: Verify & Inject Web Warehouse Assets
+        run: |
+          # Ensure Resources/www exists inside app bundle
+          TARGET_WWW="JRmusic.app/Contents/Resources/www"
+          mkdir -p "$TARGET_WWW"
+
+          # Copy frontend files (ensuring index.html, app.js, style.css are placed)
+          cp JRmusic/Resources/www/index.html "$TARGET_WWW/"
+          cp JRmusic/Resources/www/app.js "$TARGET_WWW/"
+          cp JRmusic/Resources/www/style.css "$TARGET_WWW/"
+
+          # Audit contents
+          echo "Verifying web bundle contents:"
+          ls -la "$TARGET_WWW"
+
+          test -f "$TARGET_WWW/index.html" || { echo "Missing index.html"; exit 1; }
+          test -f "$TARGET_WWW/app.js" || { echo "Missing app.js"; exit 1; }
+          test -f "$TARGET_WWW/style.css" || { echo "Missing style.css"; exit 1; }
+
+      - name: Assemble DMG Volume Root & Applications Symlink
+        run: |
+          mkdir -p dmg_root
+          # Copy app bundle into DMG staging area
+          cp -R JRmusic.app dmg_root/
+
+          # Create standard macOS drag-and-drop link to /Applications
+          ln -s /Applications dmg_root/Applications
+
+          # Optional: Include root volume icon if available
+          if [ -f "JRmusic/Resources/AppIcon.icns" ]; then
+            cp "JRmusic/Resources/AppIcon.icns" dmg_root/.VolumeIcon.icns
+          fi
+
+      - name: Package Distributable DMG via Native hdiutil
+        run: |
+          mkdir -p dist
+          # Build compressed read-only HFS+/UDZO disk image
+          hdiutil create \
+            -volname "JRmusic" \
+            -srcfolder dmg_root \
+            -ov \
+            -format UDZO \
+            dist/JRmusic.dmg
+
+          # Verify DMG file integrity
+          hdiutil verify dist/JRmusic.dmg
+
+      - name: Upload DMG Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: JRmusic-macOS-Universal-DMG
+          path: dist/JRmusic.dmg
+          if-no-files-found: error
+          retention-days: 14
