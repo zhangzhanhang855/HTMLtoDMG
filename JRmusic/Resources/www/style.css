@@ -1,5 +1,5 @@
 /* ==========================================================================
-   DESIGN SYSTEM CORE & DESIGN TOKENS (macOS Offline Native Compatible)
+   JRmusic Design System & WebKit Runtime Engine
    ========================================================================== */
 :root {
   /* Studio Dark Archetype */
@@ -11,7 +11,7 @@
   --bg-glass: rgba(15, 23, 42, 0.75);
   --bg-glass-card: rgba(30, 41, 59, 0.55);
 
-  /* Accent Standard (Cobalt Electric & Cyan Glow) */
+  /* Accent Standards */
   --accent: #3b82f6;
   --accent-hover: #2563eb;
   --accent-glow: rgba(59, 130, 246, 0.45);
@@ -35,11 +35,11 @@
   --border-elevated: rgba(255, 255, 255, 0.14);
   --border-accent: rgba(59, 130, 246, 0.35);
 
-  /* Typography Stacks: Uses macOS Native Fonts (No Web CDN dependency) */
+  /* macOS Native High-Fidelity Font Stacks */
   --font-stack: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Plus Jakarta Sans", "Segoe UI", Roboto, sans-serif;
   --font-mono: "SF Mono", Menlo, Monaco, Consolas, monospace;
 
-  /* Geometry & Spacing */
+  /* Geometry & Window Bounds */
   --safe-top: env(safe-area-inset-top, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
   --sidebar-width: 260px;
@@ -54,7 +54,7 @@
   --trans-quick: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-/* VIP Luxury Theme */
+/* VIP Luxury Tier */
 body.is-premium-tier {
   --accent: #f59e0b;
   --accent-hover: #d97706;
@@ -79,6 +79,9 @@ body.is-premium-tier .spectrum-bar {
   background: linear-gradient(180deg, #fde68a, #f59e0b) !important;
 }
 
+/* ==========================================================================
+   RESET & WEBKIT FULL-FRAME RESIZE GUARD
+   ========================================================================== */
 *, *::before, *::after {
   box-sizing: border-box;
   margin: 0;
@@ -90,8 +93,15 @@ body.is-premium-tier .spectrum-bar {
 }
 
 html, body {
-  width: 100%;
-  height: 100%;
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  width: 100vw;
+  height: 100vh;
+  margin: 0;
+  padding: 0;
   overflow: hidden;
   background-color: var(--bg-deep);
   color: var(--text-primary);
@@ -203,9 +213,11 @@ body.is-premium-tier::before {
    APP WORKSPACE LAYOUT & SIDEBAR
    ========================================================================== */
 #workspace-container {
-  position: relative;
-  width: 100vw;
-  height: 100vh;
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
   display: flex;
   z-index: 10;
   overflow: hidden;
@@ -812,10 +824,13 @@ header.studio-action-bar {
    ========================================================================== */
 footer.bottom-cockpit-dock {
   position: fixed;
-  bottom: 0; left: 0; right: 0;
+  bottom: 0; 
+  left: 0; 
+  right: 0;
   height: calc(var(--player-dock-height) + var(--safe-bottom));
   padding-bottom: var(--safe-bottom);
-  padding-left: 32px; padding-right: 32px;
+  padding-left: 32px; 
+  padding-right: 32px;
   background: rgba(8, 13, 26, 0.88);
   backdrop-filter: blur(32px) saturate(200%);
   -webkit-backdrop-filter: blur(32px) saturate(200%);
@@ -1155,4 +1170,3 @@ footer.bottom-cockpit-dock {
   color: var(--accent);
   transform: translateX(4px);
 }
-
