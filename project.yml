@@ -3,7 +3,8 @@ options:
   bundleIdPrefix: com.jrmusic
   deploymentTarget:
     macOS: "12.0"
-  xcodeVersion: "15.4" # Explicitly sets compatibility to format 56 (Xcode 15.x compatible)
+  projectFormat: xcode15_0
+  postGenCommand: "sed -i.bak -E 's|objectVersion = [0-9]+|objectVersion = 56|' JRmusic.xcodeproj/project.pbxproj"
 targets:
   JRmusic:
     type: application
