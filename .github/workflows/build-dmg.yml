@@ -13,25 +13,6 @@ jobs:
       - name: Check Out Repository
         uses: actions/checkout@v4
 
-      - name: Select Xcode 16 (Fallback to Latest)
-        run: |
-          echo "Available Xcode installations on runner:"
-          ls -d /Applications/Xcode* || true
-
-          # Select the newest Xcode 16.x available; fallback gracefully if not found
-          if [ -d "/Applications/Xcode_16.2.app" ]; then
-            sudo xcode-select -s /Applications/Xcode_16.2.app
-          elif [ -d "/Applications/Xcode_16.1.app" ]; then
-            sudo xcode-select -s /Applications/Xcode_16.1.app
-          elif [ -d "/Applications/Xcode_16.0.app" ]; then
-            sudo xcode-select -s /Applications/Xcode_16.0.app
-          elif [ -d "/Applications/Xcode_16.app" ]; then
-            sudo xcode-select -s /Applications/Xcode_16.app
-          fi
-
-          echo "Active Xcode Version:"
-          xcodebuild -version
-
       - name: Set Up Python Environment
         uses: actions/setup-python@v5
         with:
@@ -42,15 +23,24 @@ jobs:
           pip install Pillow
           brew install xcodegen
 
-      - name: Generate App Icon (.icns) & Graphics
+      - name: Select Compatible Xcode Version
+        run: |
+          # Use Xcode 15 or 16 if present, print active toolchain version
+          if [ -d "/Applications/Xcode_16.0.app" ]; then
+            sudo xcode-select -s /Applications/Xcode_16.0.app
+          elif [ -d "/Applications/Xcode_15.4.app" ]; then
+            sudo xcode-select -s /Applications/Xcode_15.4.app
+          fi
+          xcodebuild -version
+
+      - name: Generate App Icon & Graphics
         run: |
           python3 scripts/generate_icons.py
-          test -f "JRmusic/Resources/AppIcon.icns" || { echo "AppIcon generation failed"; exit 1; }
+          test -f "JRmusic/Resources/AppIcon.icns" || { echo "AppIcon.icns generation failed"; exit 1; }
 
       - name: Generate Xcode Project File
         run: |
-          # Use Xcode 14.0 compatibility project format as extra safety guard
-          xcodegen generate --project-format "Xcode 14.0" || xcodegen generate
+          xcodegen generate
 
       - name: Compile macOS Application (.app)
         run: |
@@ -65,7 +55,7 @@ jobs:
 
           APP_PATH="build_output/Build/Products/Release/JRmusic.app"
           if [ ! -d "$APP_PATH" ]; then
-            echo "Build error: JRmusic.app not found in products directory"
+            echo "Error: JRmusic.app not found in build products"
             exit 1
           fi
           cp -R "$APP_PATH" ./JRmusic.app
@@ -75,41 +65,47 @@ jobs:
           TARGET_WWW="JRmusic.app/Contents/Resources/www"
           mkdir -p "$TARGET_WWW"
 
-          # Copy frontend files into the app bundle
+          # Copy frontend files directly into app bundle
           cp JRmusic/Resources/www/index.html "$TARGET_WWW/"
           cp JRmusic/Resources/www/app.js "$TARGET_WWW/"
           cp JRmusic/Resources/www/style.css "$TARGET_WWW/"
 
-          # Ensure binary and directory permissions are correct
-          chmod -R u+w JRmusic.app
-          chmod +x JRmusic.app/Contents/MacOS/JRmusic
-
-          echo "Bundle Assets Check:"
-          ls -la "$TARGET_WWW"
-
+          # Verify files exist
           test -f "$TARGET_WWW/index.html" || { echo "Missing index.html"; exit 1; }
           test -f "$TARGET_WWW/app.js" || { echo "Missing app.js"; exit 1; }
           test -f "$TARGET_WWW/style.css" || { echo "Missing style.css"; exit 1; }
 
-      - name: Apply Ad-Hoc Code Signature
+          echo "Bundle web assets verified successfully:"
+          ls -la "$TARGET_WWW"
+
+      - name: Apply Ad-hoc Signature & Executable Permissions
         run: |
-          # Ad-hoc sign the bundle with deep traversal so macOS accepts bundle integrity
+          # Ensure execution bit is enabled on binaries
+          chmod -R +x JRmusic.app/Contents/MacOS/
+
+          # Remove quarantine metadata if inherited
+          xattr -cr JRmusic.app
+
+          # Ad-hoc sign bundle and subcomponents to prevent silent macOS Gatekeeper termination
           codesign --force --deep --sign - ./JRmusic.app
 
-          # Verify the signature
-          codesign --verify --verbose ./JRmusic.app
+          # Verify signature structure
+          codesign -dv --verbose=4 ./JRmusic.app
 
-      - name: Assemble DMG Staging Root
+      - name: Assemble DMG Volume Root & Symlink
         run: |
           mkdir -p dmg_root
           cp -R JRmusic.app dmg_root/
+
+          # Create standard Applications drag-and-drop symlink
           ln -s /Applications dmg_root/Applications
 
+          # Add custom volume icon if available
           if [ -f "JRmusic/Resources/AppIcon.icns" ]; then
             cp "JRmusic/Resources/AppIcon.icns" dmg_root/.VolumeIcon.icns
           fi
 
-      - name: Build DMG via Native hdiutil
+      - name: Package Distributable DMG via Native hdiutil
         run: |
           mkdir -p dist
           hdiutil create \
@@ -119,10 +115,6 @@ jobs:
             -format UDZO \
             dist/JRmusic.dmg
 
-          # Ad-hoc sign the outer disk image
-          codesign --force --sign - dist/JRmusic.dmg
-
-          # Verify DMG file integrity
           hdiutil verify dist/JRmusic.dmg
 
       - name: Upload DMG Artifact
