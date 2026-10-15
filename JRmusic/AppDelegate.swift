@@ -2,14 +2,15 @@ import Cocoa
 import WebKit
 
 @main
-class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate {
+class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDelegate {
     var window: NSWindow!
     var webView: WKWebView!
 
     func applicationDidFinishLaunching(_ aNotification: Notification) {
-        let windowRect = NSRect(x: 0, y: 0, width: 900, height: 600)
+        let initialRect = NSRect(x: 0, y: 0, width: 1200, height: 800)
+
         window = NSWindow(
-            contentRect: windowRect,
+            contentRect: initialRect,
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
             backing: .buffered,
             defer: false
@@ -18,23 +19,44 @@ class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate {
         window.title = "JRmusic"
         window.titlebarAppearsTransparent = true
         window.titleVisibility = .hidden
+        window.minSize = NSSize(width: 900, height: 600)
 
-        let configuration = WKWebViewConfiguration()
-        configuration.preferences.setValue(true, forKey: "allowFileAccessFromFileURLs")
+        // WebKit Preferences
+        let preferences = WKPreferences()
+        preferences.setValue(true, forKey: "developerExtrasEnabled") // Allows right-click Inspect Element
 
-        webView = WKWebView(frame: windowRect, configuration: configuration)
+        let webConfiguration = WKWebViewConfiguration()
+        webConfiguration.preferences = preferences
+        webConfiguration.preferences.setValue(true, forKey: "allowFileAccessFromFileURLs")
+        webConfiguration.setValue(true, forKey: "allowUniversalAccessFromFileURLs")
+
+        // Initialize webView matching window bounds
+        webView = WKWebView(frame: window.contentView!.bounds, configuration: webConfiguration)
         webView.navigationDelegate = self
+        webView.uiDelegate = self
         webView.autoresizingMask = [.width, .height]
-        window.contentView = webView
+        
+        // Prevent white flash / black letterboxing
+        webView.setValue(false, forKey: "drawsBackground")
 
-        // Load bundled index.html from www folder
-        if let htmlPath = Bundle.main.url(forResource: "index", withExtension: "html", subdirectory: "Resources/www") {
-            webView.loadFileURL(htmlPath, allowingReadAccessTo: htmlPath.deletingLastPathComponent())
-        } else if let altPath = Bundle.main.url(forResource: "index", withExtension: "html", subdirectory: "www") {
-            webView.loadFileURL(altPath, allowingReadAccessTo: altPath.deletingLastPathComponent())
-        }
+        window.contentView?.addSubview(webView)
+
+        // Load bundled index.html
+        loadIndexHTML()
 
         window.makeKeyAndOrderFront(nil)
+    }
+
+    private func loadIndexHTML() {
+        if let url = Bundle.main.url(forResource: "index", withExtension: "html", subdirectory: "Resources/www") {
+            webView.loadFileURL(url, allowingReadAccessTo: url.deletingLastPathComponent())
+        } else if let url = Bundle.main.url(forResource: "index", withExtension: "html", subdirectory: "www") {
+            webView.loadFileURL(url, allowingReadAccessTo: url.deletingLastPathComponent())
+        } else if let url = Bundle.main.url(forResource: "index", withExtension: "html") {
+            webView.loadFileURL(url, allowingReadAccessTo: url.deletingLastPathComponent())
+        } else {
+            print("Failed to locate index.html inside application bundle")
+        }
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
