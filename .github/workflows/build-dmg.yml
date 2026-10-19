@@ -25,9 +25,11 @@ jobs:
 
       - name: Select Compatible Xcode Version
         run: |
-          # Use Xcode 15 or 16 if present, print active toolchain version
-          if [ -d "/Applications/Xcode_16.0.app" ]; then
-            sudo xcode-select -s /Applications/Xcode_16.0.app
+          # 優先選擇相容的 Xcode 版本
+          if [ -d "/Applications/Xcode_16.2.app" ]; then
+            sudo xcode-select -s /Applications/Xcode_16.2.app
+          elif [ -d "/Applications/Xcode_16.1.app" ]; then
+            sudo xcode-select -s /Applications/Xcode_16.1.app
           elif [ -d "/Applications/Xcode_15.4.app" ]; then
             sudo xcode-select -s /Applications/Xcode_15.4.app
           fi
@@ -36,7 +38,7 @@ jobs:
       - name: Generate App Icon & Graphics
         run: |
           python3 scripts/generate_icons.py
-          test -f "JRmusic/Resources/AppIcon.icns" || { echo "AppIcon.icns generation failed"; exit 1; }
+          test -f "JRmusic/Resources/AppIcon.icns" || { echo "AppIcon.icns 生成失敗"; exit 1; }
 
       - name: Generate Xcode Project File
         run: |
@@ -55,41 +57,47 @@ jobs:
 
           APP_PATH="build_output/Build/Products/Release/JRmusic.app"
           if [ ! -d "$APP_PATH" ]; then
-            echo "Error: JRmusic.app not found in build products"
+            echo "錯誤：未在編譯產物中找到 JRmusic.app"
             exit 1
           fi
           cp -R "$APP_PATH" ./JRmusic.app
 
       - name: Verify & Inject Web Warehouse Assets
         run: |
+          # 建立目標資料夾（Contents/Resources/www）
           TARGET_WWW="JRmusic.app/Contents/Resources/www"
+          TARGET_RES="JRmusic.app/Contents/Resources"
           mkdir -p "$TARGET_WWW"
 
-          # Copy frontend files directly into app bundle
+          # 雙重注入：將前端資源同時複製至 www 子目錄與 Resources 根目錄，確保 100% 能被讀取
           cp JRmusic/Resources/www/index.html "$TARGET_WWW/"
           cp JRmusic/Resources/www/app.js "$TARGET_WWW/"
           cp JRmusic/Resources/www/style.css "$TARGET_WWW/"
 
-          # Verify files exist
-          test -f "$TARGET_WWW/index.html" || { echo "Missing index.html"; exit 1; }
-          test -f "$TARGET_WWW/app.js" || { echo "Missing app.js"; exit 1; }
-          test -f "$TARGET_WWW/style.css" || { echo "Missing style.css"; exit 1; }
+          cp JRmusic/Resources/www/index.html "$TARGET_RES/"
+          cp JRmusic/Resources/www/app.js "$TARGET_RES/"
+          cp JRmusic/Resources/www/style.css "$TARGET_RES/"
 
-          echo "Bundle web assets verified successfully:"
+          # 檢查資源完整性
+          test -f "$TARGET_WWW/index.html" || { echo "缺少 index.html"; exit 1; }
+          test -f "$TARGET_WWW/app.js" || { echo "缺少 app.js"; exit 1; }
+          test -f "$TARGET_WWW/style.css" || { echo "缺少 style.css"; exit 1; }
+
+          echo "網頁倉庫資源驗證完成："
           ls -la "$TARGET_WWW"
 
       - name: Apply Ad-hoc Signature & Executable Permissions
         run: |
-          # Ensure execution bit is enabled on binaries
+          # 確保二進制執行檔許可權正確
           chmod -R +x JRmusic.app/Contents/MacOS/
 
-          # Remove quarantine metadata if inherited
+          # 清除隔離屬性
           xattr -cr JRmusic.app
 
-          # Ad-hoc sign bundle and subcomponents to prevent silent macOS Gatekeeper termination
+          # 本地 Ad-hoc 簽名，防止 macOS 核心靜默殺死進程
           codesign --force --deep --sign - ./JRmusic.app
 
-          # Verify signature structure
+          # 驗證簽名
           codesign -dv --verbose=4 ./JRmusic.app
 
       - name: Assemble DMG Volume Root & Symlink
@@ -97,10 +105,10 @@ jobs:
           mkdir -p dmg_root
           cp -R JRmusic.app dmg_root/
 
-          # Create standard Applications drag-and-drop symlink
+          # 建立 /Applications 替身連結
           ln -s /Applications dmg_root/Applications
 
-          # Add custom volume icon if available
+          # 若存在圖標則加入至磁碟映像
           if [ -f "JRmusic/Resources/AppIcon.icns" ]; then
             cp "JRmusic/Resources/AppIcon.icns" dmg_root/.VolumeIcon.icns
           fi
