@@ -2,7 +2,7 @@ import Cocoa
 import WebKit
 
 @main
-class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDelegate {
+class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate {
     var window: NSWindow!
     var webView: WKWebView!
 
@@ -17,49 +17,64 @@ class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDe
         )
         window.center()
         window.title = "JRmusic"
-        window.titlebarAppearsTransparent = true
-        window.titleVisibility = .hidden
         window.minSize = NSSize(width: 900, height: 600)
 
-        // WebKit Preferences
-        let preferences = WKPreferences()
-        preferences.setValue(true, forKey: "developerExtrasEnabled") // Allows right-click Inspect Element
-
-        let webConfiguration = WKWebViewConfiguration()
-        webConfiguration.preferences = preferences
-        webConfiguration.preferences.setValue(true, forKey: "allowFileAccessFromFileURLs")
-        webConfiguration.setValue(true, forKey: "allowUniversalAccessFromFileURLs")
-
-        // Initialize webView matching window bounds
-        webView = WKWebView(frame: window.contentView!.bounds, configuration: webConfiguration)
-        webView.navigationDelegate = self
-        webView.uiDelegate = self
-        webView.autoresizingMask = [.width, .height]
+        // WebKit Sandbox & Local Resource Security Bypass
+        let config = WKWebViewConfiguration()
+        let prefs = WKPreferences()
+        prefs.setValue(true, forKey: "developerExtrasEnabled")
+        config.preferences = prefs
         
-        // Prevent white flash / black letterboxing
-        webView.setValue(false, forKey: "drawsBackground")
+        // Allow local file loading and cross-origin access within the bundle
+        config.setValue(true, forKey: "allowUniversalAccessFromFileURLs")
+        config.preferences.setValue(true, forKey: "allowFileAccessFromFileURLs")
 
-        window.contentView?.addSubview(webView)
+        // Bind frame directly to window content bounds
+        let contentView = window.contentView!
+        webView = WKWebView(frame: contentView.bounds, configuration: config)
+        webView.autoresizingMask = [.width, .height]
+        webView.navigationDelegate = self
+        contentView.addSubview(webView)
 
-        // Load bundled index.html
         loadIndexHTML()
-
         window.makeKeyAndOrderFront(nil)
     }
 
     private func loadIndexHTML() {
-        if let url = Bundle.main.url(forResource: "index", withExtension: "html", subdirectory: "Resources/www") {
-            webView.loadFileURL(url, allowingReadAccessTo: url.deletingLastPathComponent())
-        } else if let url = Bundle.main.url(forResource: "index", withExtension: "html", subdirectory: "www") {
-            webView.loadFileURL(url, allowingReadAccessTo: url.deletingLastPathComponent())
-        } else if let url = Bundle.main.url(forResource: "index", withExtension: "html") {
-            webView.loadFileURL(url, allowingReadAccessTo: url.deletingLastPathComponent())
-        } else {
-            print("Failed to locate index.html inside application bundle")
+        let fileManager = FileManager.default
+        let bundlePath = Bundle.main.bundlePath
+        
+        // Array of possible paths where index.html could exist
+        let candidatePaths = [
+            Bundle.main.path(forResource: "index", ofType: "html", inDirectory: "www"),
+            Bundle.main.path(forResource: "index", ofType: "html"),
+            "\(bundlePath)/Contents/Resources/www/index.html",
+            "\(bundlePath)/Contents/Resources/index.html"
+        ].compactMap { $0 }
+
+        for path in candidatePaths {
+            if fileManager.fileExists(atPath: path) {
+                let fileURL = URL(fileURLWithPath: path)
+                let accessDirectory = fileURL.deletingLastPathComponent()
+                // Grant WebKit permission to read all sibling files (style.css, app.js)
+                webView.loadFileURL(fileURL, allowingReadAccessTo: accessDirectory)
+                print("Successfully loaded: \(path)")
+                return
+            }
         }
+
+        // Visual fallback alert inside the window if files are missing
+        let errorHTML = """
+        <html><body style='background:#111;color:#ff5555;font-family:sans-serif;padding:40px;'>
+        <h2>JRmusic: HTML File Not Found</h2>
+        <p>Searched paths:</p>
+        <pre>\(candidatePaths.joined(separator: "\n"))</pre>
+        </body></html>
+        """
+        webView.loadHTMLString(errorHTML, baseURL: nil)
     }
 
-    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
-        return true
+    func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+        print("WebKit Navigation Error: \(error.localizedDescription)")
     }
 }
