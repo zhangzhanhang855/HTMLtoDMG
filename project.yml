@@ -11,6 +11,11 @@ targets:
     platform: macOS
     sources:
       - path: JRmusic
+        excludes:
+          - "Resources/www"
+      - path: JRmusic/Resources/www
+        buildPhase: resources
+        type: folder
     settings:
       PRODUCT_BUNDLE_IDENTIFIER: com.jrmusic.app
       INFOPLIST_FILE: JRmusic/Info.plist
