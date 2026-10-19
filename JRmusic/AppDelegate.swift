@@ -2,7 +2,7 @@ import Cocoa
 import WebKit
 
 @main
-class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate {
+class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDelegate {
     var window: NSWindow!
     var webView: WKWebView!
 
@@ -17,24 +17,27 @@ class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate {
         )
         window.center()
         window.title = "JRmusic"
+        window.titlebarAppearsTransparent = true
+        window.titleVisibility = .hidden
         window.minSize = NSSize(width: 900, height: 600)
 
-        // WebKit Sandbox & Local Resource Security Bypass
-        let config = WKWebViewConfiguration()
-        let prefs = WKPreferences()
-        prefs.setValue(true, forKey: "developerExtrasEnabled")
-        config.preferences = prefs
-        
-        // Allow local file loading and cross-origin access within the bundle
-        config.setValue(true, forKey: "allowUniversalAccessFromFileURLs")
-        config.preferences.setValue(true, forKey: "allowFileAccessFromFileURLs")
+        // WebKit 核心配置
+        let webConfiguration = WKWebViewConfiguration()
+        let preferences = WKPreferences()
+        preferences.setValue(true, forKey: "developerExtrasEnabled") // 允許右鍵檢查元素
+        webConfiguration.preferences = preferences
 
-        // Bind frame directly to window content bounds
-        let contentView = window.contentView!
-        webView = WKWebView(frame: contentView.bounds, configuration: config)
-        webView.autoresizingMask = [.width, .height]
+        // 徹底解除本地 HTML / CSS / JS 與 CORS 跨域限制
+        webConfiguration.preferences.setValue(true, forKey: "allowFileAccessFromFileURLs")
+        webConfiguration.setValue(true, forKey: "allowUniversalAccessFromFileURLs")
+
+        webView = WKWebView(frame: window.contentView!.bounds, configuration: webConfiguration)
         webView.navigationDelegate = self
-        contentView.addSubview(webView)
+        webView.uiDelegate = self
+        webView.autoresizingMask = [.width, .height]
+        webView.setValue(false, forKey: "drawsBackground") // 避免白屏閃爍
+
+        window.contentView?.addSubview(webView)
 
         loadIndexHTML()
         window.makeKeyAndOrderFront(nil)
@@ -42,39 +45,52 @@ class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate {
 
     private func loadIndexHTML() {
         let fileManager = FileManager.default
-        let bundlePath = Bundle.main.bundlePath
+        let bundleResourcePath = Bundle.main.resourcePath ?? ""
         
-        // Array of possible paths where index.html could exist
-        let candidatePaths = [
-            Bundle.main.path(forResource: "index", ofType: "html", inDirectory: "www"),
-            Bundle.main.path(forResource: "index", ofType: "html"),
-            "\(bundlePath)/Contents/Resources/www/index.html",
-            "\(bundlePath)/Contents/Resources/index.html"
-        ].compactMap { $0 }
+        // 窮舉所有可能的實際物理路徑
+        let candidates = [
+            "\(bundleResourcePath)/www/index.html",
+            "\(bundleResourcePath)/index.html",
+            Bundle.main.path(forResource: "index", ofType: "html", inDirectory: "www") ?? "",
+            Bundle.main.path(forResource: "index", ofType: "html") ?? ""
+        ].filter { !$0.isEmpty }
 
-        for path in candidatePaths {
+        for path in candidates {
             if fileManager.fileExists(atPath: path) {
                 let fileURL = URL(fileURLWithPath: path)
-                let accessDirectory = fileURL.deletingLastPathComponent()
-                // Grant WebKit permission to read all sibling files (style.css, app.js)
-                webView.loadFileURL(fileURL, allowingReadAccessTo: accessDirectory)
-                print("Successfully loaded: \(path)")
+                // 授權 WebKit 讀取該目錄下所有相鄰檔案 (style.css, app.js 等)
+                let accessDir = fileURL.deletingLastPathComponent()
+                webView.loadFileURL(fileURL, allowingReadAccessTo: accessDir)
+                NSLog("[JRmusic] Successfully loaded HTML from: %@", path)
                 return
             }
         }
 
-        // Visual fallback alert inside the window if files are missing
-        let errorHTML = """
-        <html><body style='background:#111;color:#ff5555;font-family:sans-serif;padding:40px;'>
-        <h2>JRmusic: HTML File Not Found</h2>
-        <p>Searched paths:</p>
-        <pre>\(candidatePaths.joined(separator: "\n"))</pre>
-        </body></html>
+        // 如果真的任何路徑都找不到，在視窗中直觀印出診斷資訊，不再默默黑屏
+        let debugHTML = """
+        <!DOCTYPE html>
+        <html>
+        <body style="background:#0a0d14;color:#f87171;font-family:-apple-system,sans-serif;padding:40px;">
+          <h2>❌ JRmusic 資源載入失敗</h2>
+          <p style="color:#94a3b8;">找不到 index.html，請檢查 App 內部封裝結構。已檢查過的路徑：</p>
+          <pre style="background:#1e293b;color:#38bdf8;padding:16px;border-radius:8px;overflow-x:auto;">\(candidates.joined(separator: "\n"))</pre>
+          <p style="color:#64748b;font-size:12px;">App Bundle Path: \(Bundle.main.bundlePath)</p>
+        </body>
+        </html>
         """
-        webView.loadHTMLString(errorHTML, baseURL: nil)
+        webView.loadHTMLString(debugHTML, baseURL: nil)
+    }
+
+    // 導航失敗回呼
+    func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+        NSLog("[JRmusic] Navigation failed: %@", error.localizedDescription)
     }
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
-        print("WebKit Navigation Error: \(error.localizedDescription)")
+        NSLog("[JRmusic] Provisional navigation failed: %@", error.localizedDescription)
+    }
+
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        return true
     }
 }
